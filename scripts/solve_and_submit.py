@@ -203,14 +203,24 @@ Please analyse what went wrong and provide a corrected solution.
         - Optimise for correctness first, then time complexity.
     """)
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=prompt,
-    )
-    code = response.text.strip()
-    code = re.sub(r"^```(?:python3?)?\n?", "", code)
-    code = re.sub(r"\n?```$", "", code)
-    return code.strip()
+    # Try available models in case of temporary 503 high demand spikes
+    models_to_try = ["gemini-2.5-flash", "gemini-3.8-flash"]
+    last_err = None
+    for model_name in models_to_try:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            code = response.text.strip()
+            code = re.sub(r"^```(?:python3?)?\n?", "", code)
+            code = re.sub(r"\n?```$", "", code)
+            return code.strip()
+        except Exception as err:
+            print(f"  Model {model_name} error: {err}")
+            last_err = err
+            time.sleep(2)
+    raise last_err
 
 
 # ─────────────────────────────────────────────────────────────────────────────
