@@ -75,12 +75,12 @@ def pick_random_problem_slug() -> str:
     print(f"  Total problems available: {total}")
 
     # Pick a random offset (leave room for page size of 50)
-    skip = random.randint(0, max(0, total - 50))
+    skip = random.randint(0, max(0, min(total, 3500) - 50))
 
     list_query = """
     query problemList($skip: Int, $limit: Int) {
       problemsetQuestionList: questionList(
-        categorySlug: ""
+        categorySlug: "algorithms"
         limit: $limit
         skip: $skip
         filters: {}
@@ -89,7 +89,7 @@ def pick_random_problem_slug() -> str:
           titleSlug
           title
           difficulty
-          paidOnly
+          isPaidOnly
         }
       }
     }
@@ -104,7 +104,7 @@ def pick_random_problem_slug() -> str:
     questions = resp.json()["data"]["problemsetQuestionList"]["questions"]
 
     # Filter out premium (paid-only) problems
-    free_questions = [q for q in questions if not q.get("paidOnly", False)]
+    free_questions = [q for q in questions if not q.get("isPaidOnly", False)]
     if not free_questions:
         raise RuntimeError("No free problems found on this page — try again.")
 
@@ -147,9 +147,9 @@ def fetch_problem_by_slug(slug: str) -> dict:
         raise RuntimeError(f"Problem '{slug}' not found or is premium-only.")
 
     starter = ""
-    for snippet in question.get("codeSnippets", []):
-        if snippet["langSlug"] == "python3":
-            starter = snippet["code"]
+    for snippet in (question.get("codeSnippets") or []):
+        if snippet.get("langSlug") == "python3":
+            starter = snippet.get("code", "")
             break
 
     return {
@@ -299,8 +299,14 @@ def main() -> None:
 
     # 1. Pick + fetch a random problem
     print("\n[1/4] Picking a random problem...")
-    slug    = pick_random_problem_slug()
-    problem = fetch_problem_by_slug(slug)
+    for _ in range(5):
+        slug    = pick_random_problem_slug()
+        problem = fetch_problem_by_slug(slug)
+        if problem.get("starter"):
+            break
+        print(f"  Problem '{slug}' has no Python3 starter template, trying another...")
+    else:
+        raise RuntimeError("Could not find a problem with Python3 starter code.")
     print(f"  -> {problem['title']} ({problem['difficulty']}) -- {problem['link']}")
 
     # 2-4. Generate -> Submit -> Verify with retry loop
