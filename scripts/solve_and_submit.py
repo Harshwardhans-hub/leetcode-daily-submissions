@@ -138,7 +138,7 @@ Please analyse what went wrong and provide a corrected solution.
     """)
 
     response = client.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-3.8-flash",
         contents=prompt,
     )
     code = response.text.strip()
