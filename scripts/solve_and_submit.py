@@ -1,10 +1,10 @@
 """
-LeetCode Auto-Solver & Submitter
-----------------------------------
+LeetCode Daily Auto-Solver & Submitter
+--------------------------------------
 Flow:
-  1. Pick a random problem from LeetCode's full problem set
-  2. Fetch its full content
-  3. Ask Gemini to generate a Python3 solution
+  1. Try to fetch today's Daily Coding Challenge from LeetCode
+  2. If not found or unavailable, automatically fall back to a random problem
+  3. Ask Gemini to generate a Python3 solution (resilient model fallback)
   4. Submit via LeetCode's internal submit endpoint
   5. Poll for verdict; retry up to 3 times on failure
   6. Send an email summary
@@ -51,14 +51,69 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Step 1a – Pick a random problem slug from the full problem list
+# Step 1a – Fetch today's Daily Challenge
+# ─────────────────────────────────────────────────────────────────────────────
+def fetch_daily_problem() -> dict:
+    """Fetch today's active Daily Coding Challenge. Returns dict or None."""
+    query = """
+    query dailyChallenge {
+      activeDailyCodingChallengeQuestion {
+        date
+        link
+        question {
+          questionId
+          title
+          titleSlug
+          difficulty
+          content
+          codeSnippets {
+            lang
+            langSlug
+            code
+          }
+        }
+      }
+    }
+    """
+    try:
+        resp = requests.post(LC_GRAPHQL, json={"query": query}, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+        challenge_data = resp.json().get("data", {}).get("activeDailyCodingChallengeQuestion")
+        if not challenge_data or not challenge_data.get("question"):
+            return None
+
+        question = challenge_data["question"]
+        starter = ""
+        for snippet in (question.get("codeSnippets") or []):
+            if snippet.get("langSlug") == "python3":
+                starter = snippet.get("code", "")
+                break
+
+        if not starter:
+            print("  Daily challenge found but lacks a Python3 starter template.")
+            return None
+
+        link_path = challenge_data.get("link", f"/problems/{question['titleSlug']}/")
+        return {
+            "title":       question["title"],
+            "slug":        question["titleSlug"],
+            "difficulty":  question["difficulty"],
+            "content":     question["content"],
+            "starter":     starter,
+            "question_id": question["questionId"],
+            "link":        f"https://leetcode.com{link_path}",
+            "type":        "Daily Challenge",
+        }
+    except Exception as exc:
+        print(f"  Warning: Could not fetch daily challenge: {exc}")
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1b – Random problem fallback
 # ─────────────────────────────────────────────────────────────────────────────
 def pick_random_problem_slug() -> str:
-    """
-    Fetches a random page of LeetCode problems and returns one slug at random.
-    Total problems ~3300+; we jump to a random offset and pick from that page.
-    """
-    # First get the total count
+    """Fetches a random page of algorithm problems and returns one free slug."""
     count_query = """
     query problemCount {
       allQuestionsCount {
@@ -72,9 +127,8 @@ def pick_random_problem_slug() -> str:
     resp.raise_for_status()
     counts = resp.json()["data"]["allQuestionsCount"]
     total  = next((c["count"] for c in counts if c["difficulty"] == "All"), 3000)
-    print(f"  Total problems available: {total}")
 
-    # Pick a random offset (leave room for page size of 50)
+    # Pick a random offset within range
     skip = random.randint(0, max(0, min(total, 3500) - 50))
 
     list_query = """
@@ -109,13 +163,9 @@ def pick_random_problem_slug() -> str:
         raise RuntimeError("No free problems found on this page — try again.")
 
     chosen = random.choice(free_questions)
-    print(f"  Randomly selected: {chosen['title']} ({chosen['difficulty']})")
     return chosen["titleSlug"]
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Step 1b – Fetch full problem details by slug
-# ─────────────────────────────────────────────────────────────────────────────
 def fetch_problem_by_slug(slug: str) -> dict:
     """Fetch full problem content + Python3 starter code for a given slug."""
     query = """
@@ -160,7 +210,31 @@ def fetch_problem_by_slug(slug: str) -> dict:
         "starter":     starter,
         "question_id": question["questionId"],
         "link":        f"https://leetcode.com/problems/{question['titleSlug']}/",
+        "type":        "Random Fallback",
     }
+
+
+def get_problem_to_solve() -> dict:
+    """
+    Prioritizes today's Daily Challenge.
+    If unavailable or not found, falls back to a random algorithm problem.
+    """
+    print("\n[1/4] Checking for today's Daily Challenge...")
+    daily = fetch_daily_problem()
+    if daily:
+        print(f"  Found Daily Challenge: {daily['title']} ({daily['difficulty']})")
+        return daily
+
+    print("  Daily challenge not found or unavailable. Falling back to random problem...")
+    for attempt in range(1, 6):
+        slug    = pick_random_problem_slug()
+        problem = fetch_problem_by_slug(slug)
+        if problem.get("starter"):
+            print(f"  Random problem chosen: {problem['title']} ({problem['difficulty']})")
+            return problem
+        print(f"  Problem '{slug}' has no Python3 starter template, retrying ({attempt}/5)...")
+
+    raise RuntimeError("Could not find a problem with Python3 starter code.")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -304,20 +378,12 @@ def send_email(subject: str, body: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     print("=" * 60)
-    print("LeetCode Auto-Solver (Random Problem Mode)")
+    print("LeetCode Daily Auto-Solver")
     print("=" * 60)
 
-    # 1. Pick + fetch a random problem
-    print("\n[1/4] Picking a random problem...")
-    for _ in range(5):
-        slug    = pick_random_problem_slug()
-        problem = fetch_problem_by_slug(slug)
-        if problem.get("starter"):
-            break
-        print(f"  Problem '{slug}' has no Python3 starter template, trying another...")
-    else:
-        raise RuntimeError("Could not find a problem with Python3 starter code.")
-    print(f"  -> {problem['title']} ({problem['difficulty']}) -- {problem['link']}")
+    # 1. Fetch problem (Daily Challenge prioritized, random fallback)
+    problem = get_problem_to_solve()
+    print(f"  Selected [{problem['type']}]: {problem['title']} ({problem['difficulty']}) -- {problem['link']}")
 
     # 2-4. Generate -> Submit -> Verify with retry loop
     print("\n[2/4] Generating solution with Gemini...")
@@ -357,10 +423,11 @@ def main() -> None:
 
     # 5. Email report
     status_word = "ACCEPTED" if accepted else "FAILED"
-    subject = f"[LeetCode] {status_word}: {problem['title']} ({problem['difficulty']})"
+    subject = f"[LeetCode] [{problem['type']}] {status_word}: {problem['title']} ({problem['difficulty']})"
     body = textwrap.dedent(f"""
         LeetCode Auto-Solver Report
         ============================
+        Type       : {problem['type']}
         Date       : {time.strftime('%Y-%m-%d %H:%M UTC')}
         Problem    : {problem['title']}
         Difficulty : {problem['difficulty']}
