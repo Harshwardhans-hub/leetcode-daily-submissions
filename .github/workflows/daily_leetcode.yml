@@ -1,0 +1,44 @@
+# .github/workflows/daily_leetcode.yml
+#
+# Runs every day at 02:00 UTC (07:30 IST) — after midnight resets the daily problem.
+# Trigger manually from the Actions tab too (workflow_dispatch).
+
+name: Daily LeetCode Auto-Submit
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 02:00 UTC = 07:30 IST
+  workflow_dispatch:        # allow manual trigger from GitHub UI
+
+jobs:
+  solve-and-submit:
+    name: Solve & Submit Daily Problem
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Python ──────────────────────────────────────────────────
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # ── 3. Install dependencies ───────────────────────────────────────────
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── 4. Run the solver ─────────────────────────────────────────────────
+      - name: Run daily solver
+        env:
+          LEETCODE_SESSION: ${{ secrets.LEETCODE_SESSION }}
+          CSRF_TOKEN:       ${{ secrets.CSRF_TOKEN }}
+          GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
+          EMAIL_FROM:       ${{ secrets.EMAIL_FROM }}
+          EMAIL_PASSWORD:   ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_TO:         ${{ secrets.EMAIL_TO }}
+        run: python scripts/solve_and_submit.py
