@@ -18,7 +18,7 @@ import textwrap
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import requests
-import google.generativeai as genai
+from google import genai
 
 # ── credentials from env (GitHub Secrets) ────────────────────────────────────
 LEETCODE_SESSION = os.environ["LEETCODE_SESSION"]
@@ -45,8 +45,7 @@ HEADERS = {
 }
 
 # ── Gemini setup ──────────────────────────────────────────────────────────────
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")   # free-tier model
+client = genai.Client(api_key=GEMINI_API_KEY)   # free-tier: gemini-2.0-flash
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -138,7 +137,10 @@ Please analyse what went wrong and provide a corrected solution.
         - Optimise for correctness first, then time complexity.
     """)
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+    )
     code = response.text.strip()
 
     # Strip accidental markdown fences Gemini sometimes adds
