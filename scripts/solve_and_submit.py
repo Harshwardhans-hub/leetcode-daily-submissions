@@ -59,12 +59,14 @@ def fetch_daily_problem() -> dict:
     query dailyChallenge {
       activeDailyCodingChallengeQuestion {
         date
+        userStatus
         link
         question {
           questionId
           title
           titleSlug
           difficulty
+          status
           content
           codeSnippets {
             lang
@@ -83,6 +85,10 @@ def fetch_daily_problem() -> dict:
             return None
 
         question = challenge_data["question"]
+        user_status = challenge_data.get("userStatus", "")
+        q_status = question.get("status", "")
+        already_completed = (user_status == "Finish" or q_status == "ac")
+
         starter = ""
         for snippet in (question.get("codeSnippets") or []):
             if snippet.get("langSlug") == "python3":
@@ -95,14 +101,16 @@ def fetch_daily_problem() -> dict:
 
         link_path = challenge_data.get("link", f"/problems/{question['titleSlug']}/")
         return {
-            "title":       question["title"],
-            "slug":        question["titleSlug"],
-            "difficulty":  question["difficulty"],
-            "content":     question["content"],
-            "starter":     starter,
-            "question_id": question["questionId"],
-            "link":        f"https://leetcode.com{link_path}",
-            "type":        "Daily Challenge",
+            "title":             question["title"],
+            "slug":              question["titleSlug"],
+            "difficulty":        question["difficulty"],
+            "content":           question["content"],
+            "starter":           starter,
+            "question_id":       question["questionId"],
+            "link":              f"https://leetcode.com{link_path}",
+            "type":              "Daily Challenge",
+            "already_completed": already_completed,
+            "date":              challenge_data.get("date", ""),
         }
     except Exception as exc:
         print(f"  Warning: Could not fetch daily challenge: {exc}")
@@ -384,6 +392,12 @@ def main() -> None:
     # 1. Fetch problem (Daily Challenge prioritized, random fallback)
     problem = get_problem_to_solve()
     print(f"  Selected [{problem['type']}]: {problem['title']} ({problem['difficulty']}) -- {problem['link']}")
+
+    force_run = os.environ.get("FORCE_RUN", "false").lower() in ("true", "1", "yes")
+    if problem.get("already_completed") and not force_run:
+        print(f"\n[INFO] Today's Daily Challenge ('{problem['title']}') is ALREADY solved on LeetCode.")
+        print("Streak is secure. Exiting early to avoid duplicate submissions.")
+        return
 
     # 2-4. Generate -> Submit -> Verify with retry loop
     print("\n[2/4] Generating solution with Gemini...")

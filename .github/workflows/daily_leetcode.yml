@@ -1,14 +1,34 @@
 # .github/workflows/daily_leetcode.yml
 #
-# Runs every day at 02:00 UTC (07:30 IST) — after midnight resets the daily problem.
-# Trigger manually from the Actions tab too (workflow_dispatch).
+# Runs every day automatically on GitHub's cloud servers (no local PC required).
+# Multiple schedule triggers ensure that even if GitHub's shared queue is congested,
+# today's daily problem is guaranteed to be solved before midnight.
+# Once solved, all subsequent runs exit cleanly in 2 seconds.
 
 name: Daily LeetCode Auto-Submit
 
 on:
   schedule:
-    - cron: "30 15 * * *"   # 15:30 UTC = 21:00 IST (9 PM)
-  workflow_dispatch:        # allow manual trigger from GitHub UI
+    # 15:30 UTC = 21:00 IST (9:00 PM IST target)
+    - cron: "30 15 * * *"
+    # 15:45 UTC = 21:15 IST (Off-peak backup to bypass :00 and :30 minute congestion)
+    - cron: "45 15 * * *"
+    # 16:05 UTC = 21:35 IST (Backup)
+    - cron: "05 16 * * *"
+    # 16:35 UTC = 22:05 IST (Backup)
+    - cron: "35 16 * * *"
+    # 17:05 UTC = 22:35 IST (Backup)
+    - cron: "05 17 * * *"
+    # 18:05 UTC = 23:35 IST (Safety net before midnight resets the challenge)
+    - cron: "05 18 * * *"
+
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force solve & submit even if already completed today'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   solve-and-submit:
@@ -41,4 +61,5 @@ jobs:
           EMAIL_FROM:       ${{ secrets.EMAIL_FROM }}
           EMAIL_PASSWORD:   ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO:         ${{ secrets.EMAIL_TO }}
+          FORCE_RUN:        ${{ inputs.force || 'false' }}
         run: python scripts/solve_and_submit.py
